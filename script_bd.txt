@@ -1,0 +1,295 @@
+-- ===========================================================
+-- BASE DE DATOS: monitoreo_inundaciones (versión actualizada)
+-- ===========================================================
+CREATE DATABASE IF NOT EXISTS monitoreo_inundaciones
+  CHARACTER SET = 'utf8mb4'
+  COLLATE = 'utf8mb4_unicode_ci';
+USE monitoreo_inundaciones;
+
+SET sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+SET time_zone = '+00:00';
+
+-- ===========================================================
+-- TABLAS DE CATÁLOGOS / LOOKUPS
+-- ===========================================================
+CREATE TABLE roles (
+  id_rol TINYINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(50) NOT NULL UNIQUE,
+  descripcion VARCHAR(255)
+) ENGINE=InnoDB;
+
+CREATE TABLE estados_reporte (
+  id_estado TINYINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(30) NOT NULL UNIQUE,
+  descripcion VARCHAR(255)
+) ENGINE=InnoDB;
+
+CREATE TABLE estados_refugio (
+  id_estado_refugio TINYINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(30) NOT NULL UNIQUE,
+  descripcion VARCHAR(255)
+) ENGINE=InnoDB;
+
+CREATE TABLE niveles_riesgo (
+  id_nivel TINYINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(30) NOT NULL UNIQUE,
+  descripcion VARCHAR(255)
+) ENGINE=InnoDB;
+
+CREATE TABLE municipios (
+  id_municipio SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(120) NOT NULL UNIQUE,
+  codigo_inegi VARCHAR(20)
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- USUARIOS Y PERMISOS
+-- ===========================================================
+CREATE TABLE usuarios (
+  id_usuario INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(120) NOT NULL,
+  apellido VARCHAR(120),
+  correo VARCHAR(150) NOT NULL UNIQUE,
+  contraseña_hash VARCHAR(255) NOT NULL,
+  telefono VARCHAR(30),
+  id_rol TINYINT UNSIGNED NOT NULL,
+  activo BOOLEAN NOT NULL DEFAULT TRUE,
+  FOREIGN KEY (id_rol) REFERENCES roles(id_rol)
+    ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE permisos (
+  id_permiso INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_usuario INT UNSIGNED NOT NULL,
+  nombre VARCHAR(100) NOT NULL,
+  descripcion VARCHAR(255),
+  activo BOOLEAN NOT NULL DEFAULT TRUE,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- REFUGIOS TEMPORALES
+-- ===========================================================
+CREATE TABLE refugios (
+  id_refugio INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(150) NOT NULL,
+  direccion TEXT NOT NULL,
+  capacidad_total INT UNSIGNED NOT NULL,
+  capacidad_actual INT UNSIGNED NOT NULL DEFAULT 0,
+  id_municipio SMALLINT UNSIGNED,
+  estado_refugio_id TINYINT UNSIGNED NOT NULL,
+  telefono_contacto VARCHAR(30),
+  responsable VARCHAR(120),
+  geom POINT NOT NULL SRID 4326,
+  FOREIGN KEY (id_municipio) REFERENCES municipios(id_municipio)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (estado_refugio_id) REFERENCES estados_refugio(id_estado_refugio)
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  SPATIAL INDEX idx_refugios_geom (geom)
+) ENGINE=InnoDB;
+
+CREATE TABLE refugios_servicios (
+  id_servicio INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(100) NOT NULL UNIQUE,
+  descripcion VARCHAR(255)
+) ENGINE=InnoDB;
+
+CREATE TABLE refugios_servicios_rel (
+  id_rel INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_refugio INT UNSIGNED NOT NULL,
+  id_servicio INT UNSIGNED NOT NULL,
+  disponible BOOLEAN NOT NULL DEFAULT TRUE,
+  FOREIGN KEY (id_refugio) REFERENCES refugios(id_refugio)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (id_servicio) REFERENCES refugios_servicios(id_servicio)
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  UNIQUE KEY uq_refugio_servicio (id_refugio, id_servicio)
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- ZONAS DE RIESGO
+-- ===========================================================
+CREATE TABLE zonas_riesgo (
+  id_zona INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(150) NOT NULL,
+  descripcion TEXT,
+  nivel_riesgo_id TINYINT UNSIGNED NOT NULL,
+  id_municipio SMALLINT UNSIGNED,
+  geometria POLYGON NOT NULL SRID 4326,
+  creado_por INT UNSIGNED,
+  FOREIGN KEY (nivel_riesgo_id) REFERENCES niveles_riesgo(id_nivel)
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  FOREIGN KEY (id_municipio) REFERENCES municipios(id_municipio)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (creado_por) REFERENCES usuarios(id_usuario)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  SPATIAL INDEX idx_zonas_geometria (geometria)
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- REPORTES DE INUNDACIÓN
+-- ===========================================================
+CREATE TABLE reportes_inundacion (
+  id_reporte BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_usuario INT UNSIGNED,
+  id_municipio SMALLINT UNSIGNED,
+  estado_reporte_id TINYINT UNSIGNED NOT NULL,
+  nivel_afectacion VARCHAR(50),
+  metodo_origen VARCHAR(30) NOT NULL,
+  fecha_suceso TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  prioridad TINYINT UNSIGNED DEFAULT 2,
+  geom POINT NOT NULL SRID 4326,
+  direccion_texto VARCHAR(255),
+  verificado_por INT UNSIGNED DEFAULT NULL,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (id_municipio) REFERENCES municipios(id_municipio)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (estado_reporte_id) REFERENCES estados_reporte(id_estado)
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  FOREIGN KEY (verificado_por) REFERENCES usuarios(id_usuario)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  SPATIAL INDEX idx_reportes_geom (geom)
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- VERIFICACIONES / HISTORIAL
+-- ===========================================================
+CREATE TABLE reportes_verificacion (
+  id_verificacion BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_reporte BIGINT UNSIGNED NOT NULL,
+  id_usuario_verificador INT UNSIGNED NULL,
+  estado_anterior_id TINYINT UNSIGNED NULL,
+  estado_nuevo_id TINYINT UNSIGNED NOT NULL,
+  comentarios TEXT,
+  FOREIGN KEY (id_reporte) REFERENCES reportes_inundacion(id_reporte)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (id_usuario_verificador) REFERENCES usuarios(id_usuario)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (estado_anterior_id) REFERENCES estados_reporte(id_estado)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (estado_nuevo_id) REFERENCES estados_reporte(id_estado)
+    ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- AUDITORÍA
+-- ===========================================================
+CREATE TABLE auditoria (
+  id_auditoria BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  entidad VARCHAR(100) NOT NULL,
+  id_entidad BIGINT UNSIGNED NOT NULL,
+  accion VARCHAR(50) NOT NULL,
+  usuario_id INT UNSIGNED,
+  detalles VARCHAR(500),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id_usuario)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  INDEX idx_auditoria_entidad (entidad, id_entidad)
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- ESTACIONES METEOROLÓGICAS Y REGISTROS DE LLUVIA
+-- ===========================================================
+CREATE TABLE estaciones_meteorologicas (
+  id_estacion INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(150) NOT NULL,
+  codigo VARCHAR(50) UNIQUE,
+  id_municipio SMALLINT UNSIGNED,
+  latitud DECIMAL(10,6) NOT NULL,
+  longitud DECIMAL(10,6) NOT NULL,
+  elevacion DECIMAL(8,2),
+  geom POINT NOT NULL SRID 4326,
+  activa BOOLEAN NOT NULL DEFAULT TRUE,
+  fuente_datos VARCHAR(100) DEFAULT 'propia',
+  creado_por INT UNSIGNED,
+  FOREIGN KEY (id_municipio) REFERENCES municipios(id_municipio)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (creado_por) REFERENCES usuarios(id_usuario)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  SPATIAL INDEX idx_estaciones_geom (geom)
+) ENGINE=InnoDB;
+
+CREATE TABLE lluvia_registros (
+  id_registro BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estacion INT UNSIGNED NOT NULL,
+  fecha_hora DATETIME NOT NULL,
+  precipitacion_mm DECIMAL(6,2) NOT NULL,
+  duracion_min INT UNSIGNED DEFAULT NULL,
+  intensidad_mm_h DECIMAL(6,2) GENERATED ALWAYS AS (
+    CASE WHEN duracion_min > 0 THEN precipitacion_mm / (duracion_min / 60.0) ELSE NULL END
+  ) STORED,
+  metodo_captura VARCHAR(50) DEFAULT 'automático',
+  FOREIGN KEY (id_estacion) REFERENCES estaciones_meteorologicas(id_estacion)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  INDEX idx_lluvia_estacion_fecha (id_estacion, fecha_hora)
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- ALCANTARILLAS Y REGISTROS DE DESCARGA
+-- ===========================================================
+CREATE TABLE alcantarillas (
+  id_alcantarilla INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(50) UNIQUE,
+  nombre VARCHAR(150),
+  id_municipio SMALLINT UNSIGNED,
+  ubicacion VARCHAR(255),
+  capacidad_max_lps DECIMAL(10,2) NOT NULL COMMENT 'Litros por segundo de capacidad máxima',
+  geom POINT NOT NULL SRID 4326,
+  instalado_en DATE DEFAULT NULL,
+  activo BOOLEAN NOT NULL DEFAULT TRUE,
+  creado_por INT UNSIGNED,
+  FOREIGN KEY (id_municipio) REFERENCES municipios(id_municipio)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  FOREIGN KEY (creado_por) REFERENCES usuarios(id_usuario)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  SPATIAL INDEX idx_alcantarilla_geom (geom)
+) ENGINE=InnoDB;
+
+CREATE TABLE alcantarillas_registros (
+  id_registro BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_alcantarilla INT UNSIGNED NOT NULL,
+  fecha_hora DATETIME NOT NULL,
+  caudal_lps DECIMAL(10,2) NOT NULL COMMENT 'Litros por segundo desahogados',
+  duracion_segundos INT UNSIGNED DEFAULT NULL,
+  volumen_total_l DECIMAL(12,2) GENERATED ALWAYS AS (
+    CASE WHEN duracion_segundos IS NOT NULL THEN caudal_lps * duracion_segundos ELSE NULL END
+  ) STORED,
+  observaciones TEXT,
+  FOREIGN KEY (id_alcantarilla) REFERENCES alcantarillas(id_alcantarilla)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  INDEX idx_alcantarilla_fecha (id_alcantarilla, fecha_hora)
+) ENGINE=InnoDB;
+
+-- ===========================================================
+-- POBLADO INICIAL (CATÁLOGOS)
+-- ===========================================================
+INSERT IGNORE INTO roles (id_rol, nombre, descripcion) VALUES
+  (1, 'ciudadano', 'Usuario general que reporta inundaciones'),
+  (2, 'admin', 'Administrador del sistema'),
+  (3, 'proteccion_civil', 'Usuario de Protección Civil con privilegios de verificación');
+
+INSERT IGNORE INTO estados_reporte (id_estado, codigo, descripcion) VALUES
+  (1, 'pendiente', 'Reporte en espera de verificación'),
+  (2, 'verificado', 'Reporte validado/confirmado'),
+  (3, 'descartado', 'Reporte descartado/no confiable');
+
+INSERT IGNORE INTO estados_refugio (id_estado_refugio, codigo, descripcion) VALUES
+  (1, 'disponible', 'Refugio con espacio disponible'),
+  (2, 'lleno', 'Refugio sin capacidad'),
+  (3, 'cerrado', 'Refugio cerrado o no operativo');
+
+INSERT IGNORE INTO niveles_riesgo (id_nivel, codigo, descripcion) VALUES
+  (1, 'bajo', 'Riesgo bajo'),
+  (2, 'medio', 'Riesgo medio'),
+  (3, 'alto', 'Riesgo alto');
+
+INSERT IGNORE INTO refugios_servicios (id_servicio, nombre, descripcion) VALUES
+  (1, 'alimentacion', 'Racionamiento y comidas'),
+  (2, 'salud', 'Atención médica básica'),
+  (3, 'agua', 'Disponibilidad de agua potable'),
+  (4, 'mascotas', 'Alojamiento para mascotas');
+
+-- ===========================================================
+-- FIN DEL SCRIPT
+-- ===========================================================
