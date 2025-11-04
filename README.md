@@ -10,4 +10,4 @@
 #### *Opción 1: Descarga Directa*
 ```bash
 # Descargar el script
-wget [https://github.com/tu-usuario/tu-repositorio/raw/main/scripts/script-principal.sh](https://github.com/MartinezDG/backend-inundaciones.git)
+wget [https://github.com/MartinezDG/backend-inundaciones.git]
